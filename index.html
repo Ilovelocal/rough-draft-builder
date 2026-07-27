@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 23</span>
+    <span class="rdb-build">build 24</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -800,12 +800,23 @@
     }
     if (!t || !tt || tt.length > 90) return null;
 
+    // A bullet list is the card's description. Treating one <li> as "the
+    // description" leaves the other bullets showing the previous client's work.
+    var list = card.querySelector("ul, ol");
+    if (list && list.querySelectorAll("li").length >= 1 && !list.contains(t)) {
+      var items = Array.prototype.map.call(list.querySelectorAll("li"), function (li) { return txt(li); })
+        .filter(Boolean);
+      if (items.length) {
+        return { t: t, tt: tt, d: list, dt: items.join("\n"), isList: true, liCount: items.length };
+      }
+    }
     var d = null, dt = "", best = 0;
     hs.forEach(function (h) {
       if (h.t === tt) return;
-      if (h.t.length >= 18 && h.t.length > best) { best = h.t.length; d = h.el; dt = h.t; }
+      if (h.el.closest && h.el.closest("ul,ol")) return;
+      if (h.t.length >= 12 && h.t.length > best) { best = h.t.length; d = h.el; dt = h.t; }
     });
-    return { t: t, tt: tt, d: d, dt: dt };
+    return { t: t, tt: tt, d: d, dt: dt, isList: false, liCount: 0 };
   }
 
   // Is this group actually in a services section? Checks nearby classes and the
@@ -868,7 +879,8 @@
       g.forEach(function (k, i) {
         var pt = parts[i];
         if (!pt) return;
-        rows.push({ card: pathOf(k), title: pathOf(pt.t), desc: pt.d ? pathOf(pt.d) : null, t: pt.tt, d: pt.dt });
+        rows.push({ card: pathOf(k), title: pathOf(pt.t), desc: pt.d ? pathOf(pt.d) : null,
+          t: pt.tt, d: pt.dt, isList: !!pt.isList, liCount: pt.liCount || 0 });
       });
       if (rows.length >= 2) { best = rows; bestScore = score; }
     });
@@ -1360,6 +1372,23 @@
     "with the options explained first.",
     "booked in at a time that suits you."
   ];
+  // Bullet points, not sentences: cards that use lists need short phrases.
+  var BULLETS = [
+    "Residential and commercial",
+    "{SERVICE_C} for homes",
+    "{SERVICE_C} for businesses",
+    "Free written quotes",
+    "Clear pricing up front",
+    "Handled by our own crew",
+    "Full clean-up included",
+    "Flexible scheduling",
+    "Same-week availability where we can",
+    "Work explained before we start",
+    "Serving {CITY} and nearby",
+    "Small jobs welcome",
+    "Emergency call-outs",
+    "Tidy site at the end"
+  ];
   var SVC_GENERIC = [
     "{SERVICE_C}, done properly.",
     "{SERVICE_C} for {CITY} homes.",
@@ -1552,6 +1581,29 @@
 
       withDesc.forEach(function (sv) {
         var nm = sv.name.trim(), low = nm.toLowerCase();
+        if (sv.isList) {
+          // regenerate every bullet, keeping the original count so the card
+          // stays the same height as its neighbours
+          var ccL = { BIZ: c.BIZ, TRADE: c.TRADE, trade: c.trade, CITY: c.CITY,
+            SVCLIST: c.SVCLIST, SVCLIST_C: c.SVCLIST_C, SERVICE: low, SERVICE_C: cap(low) };
+          var rl = seedRnd(biz + "|list|" + nm), picked = [], usedB = {};
+          var want = Math.max(1, sv.liCount || 3);
+          var guardB = 0;
+          while (picked.length < want && guardB++ < 40) {
+            var bestB = null;
+            BULLETS.forEach(function (t3) {
+              if (usedB[t3]) return;
+              var sc3 = (seen["b:" + t3] ? 30 : 0) + rl() * 10;
+              if (!bestB || sc3 < bestB.sc) bestB = { sc: sc3, t: t3 };
+            });
+            if (!bestB) break;
+            usedB[bestB.t] = 1; seen["b:" + bestB.t] = 1;
+            picked.push(fill(bestB.t, ccL));
+          }
+          sv.desc = picked.join("\n");
+          n++;
+          return;
+        }
         var cc = { BIZ: c.BIZ, TRADE: c.TRADE, trade: c.trade, CITY: c.CITY,
           SVCLIST: c.SVCLIST, SVCLIST_C: c.SVCLIST_C, SERVICE: low, SERVICE_C: cap(low) };
         var rr = seedRnd(biz + "|" + nm);
@@ -1821,7 +1873,26 @@
       }
       if (s.pDesc && (s.desc || "").trim()) {
         var d = doc.querySelector(s.pDesc);
-        if (d) { d.textContent = s.desc.trim(); lock(d); rep.txt++; }
+        if (!d) return;
+        if (s.isList) {
+          var lines = s.desc.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+          var lis = d.querySelectorAll("li");
+          if (lis.length) {
+            // reuse the existing items so their classes and styling survive
+            for (var qi = 0; qi < lis.length; qi++) {
+              if (qi < lines.length) { lis[qi].textContent = lines[qi]; lock(lis[qi]); }
+              else { lis[qi].remove(); }
+            }
+            for (var qj = lis.length; qj < lines.length; qj++) {
+              var li2 = doc.createElement("li");
+              li2.textContent = lines[qj];
+              d.appendChild(li2); lock(li2);
+            }
+            rep.txt++;
+          }
+        } else {
+          d.textContent = s.desc.trim(); lock(d); rep.txt++;
+        }
       }
     });
 
@@ -2118,7 +2189,12 @@
       return '<div class="svc' + (s.off ? " svc-off" : "") + '">' +
         '<span class="svc-no">' + (i + 1) + "</span><div>" +
         '<input class="in" data-sn="' + i + '" placeholder="' + esc(s.origTitle) + '" value="' + esc(s.name || "") + '">' +
-        (s.pDesc ? '<textarea data-sd="' + i + '" rows="2" placeholder="' + esc((s.origDesc || "").slice(0, 90)) + '">' + esc(s.desc || "") + "</textarea>" : '<p class="hint tight">This block has no description text \u2014 name only.</p>') +
+        (s.pDesc
+          ? '<textarea data-sd="' + i + '" rows="' + (s.isList ? Math.max(2, Math.min(6, s.liCount || 3)) : 2) +
+            '" placeholder="' + esc((s.origDesc || "").replace(/\n/g, " \u00b7 ").slice(0, 90)) + '">' +
+            esc(s.desc || "") + "</textarea>" +
+            (s.isList ? '<p class="hint tight">Bullet list \u2014 one point per line.</p>' : "")
+          : '<p class="hint tight">This block has no description text \u2014 name only.</p>') +
         '<div class="btnrow" style="margin-top:6px"><button class="btn sm ghost" data-so="' + i + '">' +
         (s.off ? "Show block" : "Hide block") + "</button></div></div></div>";
     }).join("");
@@ -2338,7 +2414,8 @@
       st.slotMap = {}; st.colorMap = {}; st.copyMap = {}; st.textMap = {}; st.out = "";
       st.svc = st.scan.services.map(function (s) {
         return { pCard: s.card, pTitle: s.title, pDesc: s.desc, origTitle: s.t, origDesc: s.d,
-          origLen: s.d.length, name: "", desc: "", off: false };
+          origLen: s.d.length, isList: !!s.isList, liCount: s.liCount || 0,
+          name: "", desc: "", off: false };
       });
       var cfg = {};
       try { cfg = r[1] ? JSON.parse(r[1]) : {}; } catch (err) { cfg = {}; }
