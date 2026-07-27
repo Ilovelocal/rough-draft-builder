@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 24</span>
+    <span class="rdb-build">build 26</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -717,10 +717,13 @@
       while ((i = low.indexOf(v, i)) > -1) { n++; i += v.length; }
       if (n) found[v] = n;
     });
-    var keys = Object.keys(found).sort(function (a, b) { return b.length - a.length; }).slice(0, 6);
+    var keys = Object.keys(found).sort(function (a, b) {
+      return found[b] - found[a] || b.length - a.length;
+    }).slice(0, 6);
     var variants = [];
     keys.forEach(function (k) {
-      var re = new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), m;
+      // include the plural, or "Dumpster Rentals" leaves a stray "s" behind
+      var re = new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "s?", "gi"), m;
       while ((m = re.exec(body))) if (variants.indexOf(m[0]) === -1) variants.push(m[0]);
     });
     return variants.sort(function (a, b) { return b.length - a.length; });
@@ -1069,7 +1072,70 @@
     });
     var mdx = doc.querySelector('meta[name="description"]');
     if (mdx) brand += " " + (mdx.getAttribute("content") || "");
-    o.trades = tradeTerms(body, brand);
+    // the title lives in <head>, so it has to be part of the haystack or terms
+    // that only appear there (like a second trade in the title) are never found
+    o.trades = tradeTerms(body + " " + brand, brand);
+
+    // Service areas are often written as boroughs, counties or regions rather
+    // than "City, ST" — "Nassau County, Suffolk County, Queens, Brooklyn".
+    // These are collected as whole phrases so they can be swapped in one go.
+    var PLACE_WORD = /\b(county|counties|parish|borough|island|township|city|heights|valley|springs|beach|park|lake|shore|coast|metro|area|region|peninsula|hills|falls)\b/i;
+    var NOT_PLACE = /^(home|about|about us|services|service|contact|contact us|name|first name|last name|email|phone|message|send|submit|menu|gallery|projects|reviews|blog|faq|hours|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|free|call|now|read more|learn more|get|quote|estimate)$/i;
+    o.places = o.places || [];
+    function addPlace(ph) {
+      ph = (ph || "").replace(/\s+/g, " ").replace(/^[\s,&]+|[\s,&.!]+$/g, "").trim();
+      if (ph.length < 3 || ph.length > 110) return;
+      if (NOT_PLACE.test(ph)) return;
+      if (o.places.indexOf(ph) === -1) o.places.push(ph);
+    }
+    // a) comma or ampersand separated lists of capitalised names
+    // one string per element, so a phrase can never run across two of them
+    var chunks = (o.text || []).map(function (x) { return x.text; });
+    var ttl = doc.querySelector("title");
+    if (ttl) chunks.push(ttl.textContent || "");
+    var mdc = doc.querySelector('meta[name="description"]');
+    if (mdc) chunks.push(mdc.getAttribute("content") || "");
+    (o.copy || []).forEach(function (x) { chunks.push(x.text); });
+
+    var LIST_RE = /\b[A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){0,3}(?:\s*(?:,|&|\band\b)\s*[A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){0,3}){1,9}/g;
+    var AFTER_RE = /\b(?:serving|servicing|serves|in|across|around|throughout|near)\s+([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){0,3}(?:\s*(?:,|&|\band\b)\s*[A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){0,6}){0,6})/g;
+    var COUNTY_RE = /\b[A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)?\s+Count(?:y|ies)\b/g;
+
+    chunks.forEach(function (chunk) {
+      chunk = (chunk || "").replace(/\s+/g, " ").trim();
+      if (!chunk || chunk.length > 300) return;
+      var lm;
+      LIST_RE.lastIndex = 0;
+      while ((lm = LIST_RE.exec(chunk))) {
+        var phrase = lm[0];
+        var parts = phrase.split(/\s*(?:,|&|\band\b)\s*/).filter(Boolean);
+        if (parts.length < 2) continue;
+        if (!(PLACE_WORD.test(phrase) || parts.length >= 3)) continue;
+        if (parts.some(function (x) { return NOT_PLACE.test(x.trim()); })) continue;
+        if (o.biz && phrase.indexOf(o.biz) > -1) continue;
+        addPlace(phrase);
+        parts.forEach(function (x) {
+          if (PLACE_WORD.test(x) || parts.length >= 3 || /^[A-Z]{2,4}$/.test(x.trim())) addPlace(x);
+        });
+      }
+      var am2;
+      AFTER_RE.lastIndex = 0;
+      while ((am2 = AFTER_RE.exec(chunk))) {
+        var cand = am2[1];
+        if (o.biz && cand.indexOf(o.biz) > -1) continue;
+        if (NOT_PLACE.test(cand)) continue;
+        if (PLACE_WORD.test(cand) || /,|&|\band\b/.test(cand) || /^[A-Z]{2,4}$/.test(cand.trim())) {
+          addPlace(cand);
+          cand.split(/\s*(?:,|&|\band\b)\s*/).forEach(function (x) {
+            if (PLACE_WORD.test(x) || /^[A-Z]{2,4}$/.test(x.trim())) addPlace(x);
+          });
+        }
+      }
+      var cm2;
+      COUNTY_RE.lastIndex = 0;
+      while ((cm2 = COUNTY_RE.exec(chunk))) addPlace(cm2[0]);
+    });
+    o.places.sort(function (a, b) { return b.length - a.length; });
 
     // social links, grouped by network. Some templates repeat the same link.
     var NETS = [
@@ -1097,12 +1163,13 @@
       }
     });
     // every town-and-state reference, not just the first
-    o.places = [];
+    o.places = o.places || [];
     (body.match(/\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?,\s?(?:[A-Z]{2}\b|Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)/g) || [])
       .forEach(function (x) {
         x = x.replace(LEADIN, "").trim();
         if (x && o.places.indexOf(x) === -1) o.places.push(x);
       });
+    o.places.sort(function (a, b) { return b.length - a.length; });
     // the state on its own ("along the Maine coast")
     o.states = [];
     o.places.forEach(function (pl) {
@@ -1741,10 +1808,28 @@
     var newTrade = $("fTrade").value.trim();
     if (newTrade) {
       var tradeEndsInService = /\bservices?$/i.test(newTrade);
+      // A template often names a second trade ("... | Junk Removal | ...").
+      // Mapping every one of them onto the same trade reads as a stutter, so
+      // secondary terms take the service names instead.
+      var svcList2 = svcNames();
+      var seenRoot = {}, rank = 0;
       (st.scan.trades || []).forEach(function (t) {
+        var root = t.toLowerCase().replace(/s$/, "");
+        if (!(root in seenRoot)) seenRoot[root] = rank++;
+      });
+      (st.scan.trades || []).forEach(function (t) {
+        var idx = seenRoot[t.toLowerCase().replace(/s$/, "")];
+        if (idx > 0 && svcList2.length) {
+          var alt = svcList2[(idx - 1) % svcList2.length];
+          add(t + "s", matchCase(t, alt + "s"));
+          add(t, matchCase(t, alt));
+          return;
+        }
         // the template says "Remodeling Services"; if the new trade already ends
         // in "Service" we'd produce "Tree Service Services", so absorb the suffix
         if (tradeEndsInService && !/\bservices?$/i.test(t)) {
+          add(t + " and Services", matchCase(t, newTrade + "s"));
+          add(t + " & Services", matchCase(t, newTrade + "s"));
           add(t + " Services", matchCase(t, newTrade + "s"));
           add(t + " Service", matchCase(t, newTrade));
         }
