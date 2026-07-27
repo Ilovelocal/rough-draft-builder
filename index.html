@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 26</span>
+    <span class="rdb-build">build 29</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -1076,6 +1076,47 @@
     // that only appear there (like a second trade in the title) are never found
     o.trades = tradeTerms(body + " " + brand, brand);
 
+    // The built-in vocabulary can't cover every trade, so also derive terms from
+    // the template itself: the words left in the business name once the brand is
+    // removed, and the headings of its own service cards.
+    var GENERIC_WORD = /^(and|the|for|our|your|we|us|all|new|best|top|repair|repairs|removal|service|services|installation|install|replacement|replace|cleaning|clean|work|works|company|co|inc|llc|solutions|specialists|experts|pros|professionals)$/i;
+    var derived = [];
+    // Derivation is a fallback. When the vocabulary already recognised the trade
+    // its terms are reliable; deriving on top of them causes churn, especially
+    // when the old and new businesses are in the same trade.
+    var needDerive = o.trades.length === 0;
+    function addTrade(term) {
+      if (!needDerive) return;
+      term = (term || "").replace(/\s+/g, " ").trim();
+      if (term.length < 4 || term.length > 40) return;
+      if (GENERIC_WORD.test(term)) return;
+      if (o.biz && term.toLowerCase() === o.biz.toLowerCase()) return;
+      if (derived.indexOf(term) === -1) derived.push(term);
+    }
+    if (needDerive && o.biz) {
+      // "Ridgeline Paving & Sealcoating" -> brand "Ridgeline", trade words after it
+      var bwords = o.biz.split(/\s+/);
+      for (var bi = 1; bi < bwords.length; bi++) {
+        var wclean = bwords[bi].replace(/[^\w'\u2019-]/g, "");
+        if (wclean.length >= 5 && !GENERIC_WORD.test(wclean)) addTrade(wclean);
+      }
+    }
+    // whole service headings only: single words out of them are far too broad
+    if (needDerive) {
+      (o.services || []).forEach(function (svc2) { addTrade(svc2.t); });
+    }
+    // keep only terms that actually appear outside their own service card
+    var hay2 = body + " " + brand;
+    derived.forEach(function (term) {
+      var re4 = new RegExp("\\b" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "s?\\b", "gi");
+      var hits4 = (hay2.match(re4) || []);
+      if (hits4.length < 2) return;
+      hits4.forEach(function (form) {
+        if (o.trades.indexOf(form) === -1) o.trades.push(form);
+      });
+    });
+    o.trades.sort(function (a, b) { return b.length - a.length; });
+
     // Service areas are often written as boroughs, counties or regions rather
     // than "City, ST" — "Nassau County, Suffolk County, Queens, Brooklyn".
     // These are collected as whole phrases so they can be swapped in one go.
@@ -1134,6 +1175,17 @@
       var cm2;
       COUNTY_RE.lastIndex = 0;
       while ((cm2 = COUNTY_RE.exec(chunk))) addPlace(cm2[0]);
+      // any capitalised phrase ending in a geography word: "Tri-County Area",
+      // "Lehigh Valley", "Gulf Coast" — no comma or preposition needed
+      var CAP_RE = /\b[A-Z][\w.'\u2019-]*(?:\s+[A-Z][\w.'\u2019-]*){0,3}\b/g, pm3;
+      CAP_RE.lastIndex = 0;
+      while ((pm3 = CAP_RE.exec(chunk))) {
+        var words3 = pm3[0].split(/\s+/);
+        var last3 = words3[words3.length - 1];
+        if (words3.length >= 2 && PLACE_WORD.test(last3) && !NOT_PLACE.test(pm3[0])) {
+          if (!(o.biz && pm3[0].indexOf(o.biz) > -1)) addPlace(pm3[0]);
+        }
+      }
     });
     o.places.sort(function (a, b) { return b.length - a.length; });
 
@@ -2119,6 +2171,22 @@
       if (!el || !v) return;
       if (v === HIDE) { el.style.display = "none"; el.setAttribute("aria-hidden", "true"); rep.img++; return; }
       el.setAttribute("src", v);
+      // The old alt text describes the previous client's work ("Driveway paving")
+      // and is both a leak and bad for search, so it is rewritten to match.
+      var altBiz = $("fBiz").value.trim(), altTrade = $("fTrade").value.trim();
+      var altCity = ($("fArea").value.trim() || "").split(",")[0].trim();
+      var svcAlt = null;
+      var cardEl = el.closest ? el.closest("*") : null;
+      st.svc.forEach(function (sv2) {
+        if (svcAlt || !sv2.pCard || !(sv2.name || "").trim()) return;
+        var card2 = doc.querySelector(sv2.pCard);
+        if (card2 && card2.contains(el)) svcAlt = sv2.name.trim();
+      });
+      var newAlt = svcAlt
+        ? svcAlt + (altCity ? " in " + altCity : "")
+        : (altBiz || "") + (altTrade ? " \u2014 " + altTrade : "") + (altCity ? " in " + altCity : "");
+      if (sl.logo && altBiz) newAlt = altBiz + " logo";
+      if (newAlt.trim()) el.setAttribute("alt", newAlt.trim());
       el.removeAttribute("srcset"); el.removeAttribute("loading");
       var pic = el.closest("picture");
       if (pic) Array.prototype.forEach.call(pic.querySelectorAll("source"), function (s) { s.remove(); });
