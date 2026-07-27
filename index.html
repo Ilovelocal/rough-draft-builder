@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 19</span>
+    <span class="rdb-build">build 22</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -896,6 +896,8 @@
     "veteran|licen[cs]e|insured|certified|accredited|award|warrant|guarantee|family[- ]owned",
     "\\b(19|20)\\d{2}\\b",
     "\\b\\d{2,4}\\+?\\s*(years?|projects?|jobs?|homes?|clients?|customers?|reviews?|installs?)\\b",
+    // any count of anything: "800+ Driveways", "1,200 roofs", "over 400 decks"
+    "\\b(over\\s+|more than\\s+)?\\d{2,3}(,\\d{3})*\\+?\\s+[a-z]{3,}s\\b",
     "\\bstars?\\b|\\brated\\b|\\bfounded\\b|\\bfree\\b"
   ].join("|"), "i");
   var CLIENT_RE = new RegExp([
@@ -1084,7 +1086,7 @@
     });
     // every town-and-state reference, not just the first
     o.places = [];
-    (body.match(/\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?,\s?(?:[A-Z]{2}\b|Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|Ohio|Oklahoma|Oregon|Pennsylvania|Tennessee|Texas|Utah|Vermont|Virginia|Washington|Wisconsin|Wyoming)/g) || [])
+    (body.match(/\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?,\s?(?:[A-Z]{2}\b|Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)/g) || [])
       .forEach(function (x) {
         x = x.replace(LEADIN, "").trim();
         if (x && o.places.indexOf(x) === -1) o.places.push(x);
@@ -1093,8 +1095,14 @@
     o.states = [];
     o.places.forEach(function (pl) {
       var tail = (pl.split(",")[1] || "").trim();
-      if (tail.length > 2 && o.states.indexOf(tail) === -1) o.states.push(tail);
+      if (tail && o.states.indexOf(tail) === -1) o.states.push(tail);
     });
+    // a full state name written on its own, away from any city
+    var FULL_STATES = new RegExp("\\b(" + "Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming" + ")\\b", "g");
+    var fm;
+    while ((fm = FULL_STATES.exec(body))) {
+      if (o.states.indexOf(fm[1]) === -1) o.states.push(fm[1]);
+    }
     var ad = body.match(/\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,3}\s+(?:rd|road|st|street|ave|avenue|dr|drive|ln|lane|blvd|way|ct|court|pkwy|hwy|ter|place|pl)\.?(?:\s*,?\s*[A-Za-z ]{2,20},?\s*[A-Z]{2}[, ]*\d{5})?/i);
     o.address = ad ? ad[0].replace(/\s+/g, " ").trim() : "";
     // Work out what each flagged string actually is, so the app can decide which
@@ -1339,11 +1347,35 @@
     "Booking {trade} work in {CITY} now. Call for a free quote.",
     "Serving {CITY} and nearby. Call for a free estimate today."
   ];
-  var SVC_GENERIC = [
-    "{SERVICE_C} handled start to finish by our own crew, with a clear price agreed before the work begins.",
-    "We take care of {SERVICE} for homes around {CITY} and will walk you through the options first.",
-    "Straightforward {SERVICE} with a tidy site and no surprises at the end."
+  // Short add-on clauses. Having several lengths available lets every card be
+  // padded to within a few characters of the same length, so rows stay even.
+  var SVC_TAILS = [
+    "and a clear price up front.",
+    "with a tidy site at the end.",
+    "handled by our own crew.",
+    "on a schedule you can plan around.",
+    "with no surprises when the bill comes.",
+    "for homes right across {CITY}.",
+    "and we clear up before we leave.",
+    "with the options explained first.",
+    "booked in at a time that suits you."
   ];
+  var SVC_GENERIC = [
+    "{SERVICE_C}, done properly.",
+    "{SERVICE_C} for {CITY} homes.",
+    "{SERVICE_C}, start to finish.",
+    "{SERVICE_C}, handled by our own crew.",
+    "Straightforward {SERVICE}, done properly.",
+    "{SERVICE_C} with a tidy site at the end.",
+    "{SERVICE_C} across {CITY} and nearby.",
+    "{SERVICE_C} handled start to finish, with a clear price agreed first.",
+    "We take care of {SERVICE} for homes around {CITY}.",
+    "Straightforward {SERVICE} with no surprises at the end.",
+    "{SERVICE_C} done properly the first time, on a schedule you can plan around.",
+    "{SERVICE_C} for homes across {CITY}, with the options explained before we start.",
+    "We handle {SERVICE} start to finish and leave the site as we found it."
+  ];
+
   var SVC_BANK = [
     { k: ["roof", "shingle", "reroof"], s: [
       "Tear-off and replacement using quality shingles, with the decking checked and repaired before anything new goes down.",
@@ -1400,9 +1432,15 @@
     { k: ["landscap", "lawn", "garden", "mulch", "sod"], s: [
       "Design and planting suited to the site and the light it actually gets, not just what looks good on delivery day.",
       "Beds edged, mulched and left clean, with seasonal upkeep available if you want it." ] },
-    { k: ["tree", "stump", "arbor"], s: [
+    { k: ["stump"], s: [
+      "Stumps ground out below grade and the debris hauled away, with the area raked clean.",
+      "Grinding done close to walls and paths without tearing up what is around them." ] },
+    { k: ["trim", "prune", "pruning", "canopy"], s: [
+      "Crown thinning and deadwood taken out to keep trees healthy and safe over the house.",
+      "Cuts made at the right points so the tree heals properly instead of throwing weak growth." ] },
+    { k: ["tree", "arbor", "limb"], s: [
       "Removals planned and roped so nothing comes down where it shouldn't, including tight spots near buildings and lines.",
-      "Stumps ground out and the debris hauled away, with the area raked clean." ] },
+      "Every drop is worked out before the saw starts, then the site is cleared and raked." ] },
     { k: ["clean", "wash", "pressure", "power wash"], s: [
       "Surfaces cleaned at a pressure suited to the material, so the dirt comes off and the finish stays on.",
       "Driveways, siding, decks and walkways, with the surroundings rinsed down afterwards." ] },
@@ -1496,15 +1534,80 @@
       n++;
     });
 
-    st.svc.forEach(function (sv) {
-      var nm = (sv.name || "").trim();
-      if (!nm || !sv.pDesc) return;
-      var low = nm.toLowerCase();
-      var cc = { BIZ: c.BIZ, TRADE: c.TRADE, trade: c.trade, CITY: c.CITY,
-        SVCLIST: c.SVCLIST, SVCLIST_C: c.SVCLIST_C, SERVICE: low, SERVICE_C: cap(low) };
-      sv.desc = assemble(svcPool(nm), cc, sv.origLen || 120, seedRnd(biz + "|" + nm), seen);
-      n++;
-    });
+    // Service cards sit side by side, so their descriptions have to be close in
+    // length or the row goes ragged. Every card is built to one shared target.
+    var withDesc = st.svc.filter(function (x) { return (x.name || "").trim() && x.pDesc; });
+    if (withDesc.length) {
+      var lens = withDesc.map(function (x) { return x.origLen || 0; })
+        .filter(function (x) { return x > 20; }).sort(function (a, b) { return a - b; });
+      // match the height the template's own cards were built for, rather than
+      // forcing long copy into a card designed for two lines
+      var target = lens.length ? lens[Math.floor(lens.length / 2)] : 118;
+      target = Math.max(56, Math.min(190, target));
+      // Cards look uneven when they wrap to different numbers of lines, so aim
+      // every card at the same line count rather than the same character count.
+      var PER_LINE = 38;
+      var lines = Math.max(1, Math.round(target / PER_LINE));
+      var bandHi = lines * PER_LINE, bandLo = (lines - 1) * PER_LINE + 8;
+
+      withDesc.forEach(function (sv) {
+        var nm = sv.name.trim(), low = nm.toLowerCase();
+        var cc = { BIZ: c.BIZ, TRADE: c.TRADE, trade: c.trade, CITY: c.CITY,
+          SVCLIST: c.SVCLIST, SVCLIST_C: c.SVCLIST_C, SERVICE: low, SERVICE_C: cap(low) };
+        var rr = seedRnd(biz + "|" + nm);
+
+        // 1. a core sentence that always names this service, so a card can never
+        //    end up describing a different one
+        var core = null;
+        SVC_GENERIC.forEach(function (t2) {
+          var txt2 = fill(t2, cc);
+          // length match matters most; a small penalty discourages repeating a line
+          // prefer a core that already sits inside the band
+          var over = txt2.length > bandHi ? (txt2.length - bandHi) * 3 : 0;
+          var under = txt2.length < bandLo ? (bandLo - txt2.length) : 0;
+          var sc = over + under + (seen["g:" + t2] ? 26 : 0) + rr() * 5;
+          if (!core || sc < core.sc) core = { sc: sc, txt: txt2, key: "g:" + t2 };
+        });
+        seen[core.key] = 1;
+        var out2 = core.txt;
+        var usedHere = {};
+
+        // 2. a trade-specific detail if there is room for it
+        var pool = svcPool(nm);
+        var pick = null;
+        pool.forEach(function (t2) {
+          if (seen["s:" + t2]) return;
+          var txt2 = fill(t2, cc);
+          var after = out2.length + 1 + txt2.length;
+          if (after > bandHi) return;
+          if (!pick || Math.abs(after - bandHi) < Math.abs(out2.length + 1 + pick.txt.length - bandHi)) {
+            pick = { txt: txt2, key: "s:" + t2 };
+          }
+        });
+        if (pick) { seen[pick.key] = 1; out2 += " " + pick.txt; }
+
+        // 3. pad with short clauses until the card reaches the shared length
+        var guard2 = 0;
+        while (out2.length < bandLo && guard2++ < 4) {
+          var tail = null;
+          SVC_TAILS.forEach(function (t2) {
+            if (usedHere[t2]) return;
+            var txt2 = fill(t2, cc);
+            var after2 = out2.length + 1 + txt2.length;
+            if (after2 > bandHi) return;
+            if (!tail || Math.abs(after2 - bandHi) < Math.abs(out2.length + 1 + tail.txt.length - bandHi)) {
+              tail = { txt: txt2, raw: t2 };
+            }
+          });
+          if (!tail) break;
+          usedHere[tail.raw] = 1;
+          out2 = out2.replace(/\.$/, ",") + " " + tail.txt;
+        }
+
+        sv.desc = out2;
+        n++;
+      });
+    }
 
     // service dropdowns follow the service names you typed
     var names = svcNames();
@@ -1516,9 +1619,9 @@
     // claim strings the previous client could back up and this one may not
     (st.scan.text || []).forEach(function (x) {
       if (x.kind !== "claim" || st.textMap[x.id] != null) return;
-      var pool = x.len < 28 ? VALUE_SHORT : VALUE_LONG;
-      if (/^(top|promo|banner|hero)$/.test(x.sec) || (x.len >= 28 && x.len < 90 && x.sec === "topbar")) pool = PROMO;
-      st.textMap[x.id] = assemble(pool, c, x.len, seedRnd(biz + "|" + x.id), seen);
+      var pool2 = x.len < 28 ? VALUE_SHORT : VALUE_LONG;
+      if (/^(top|promo|banner|hero)$/.test(x.sec) || (x.len >= 28 && x.len < 90 && x.sec === "topbar")) pool2 = PROMO;
+      st.textMap[x.id] = assemble(pool2, c, x.len, seedRnd(biz + "|" + x.id), seen);
       n++;
     });
 
@@ -1585,7 +1688,16 @@
     // the trade the template is written around
     var newTrade = $("fTrade").value.trim();
     if (newTrade) {
-      (st.scan.trades || []).forEach(function (t) { add(t, matchCase(t, newTrade)); });
+      var tradeEndsInService = /\bservices?$/i.test(newTrade);
+      (st.scan.trades || []).forEach(function (t) {
+        // the template says "Remodeling Services"; if the new trade already ends
+        // in "Service" we'd produce "Tree Service Services", so absorb the suffix
+        if (tradeEndsInService && !/\bservices?$/i.test(t)) {
+          add(t + " Services", matchCase(t, newTrade + "s"));
+          add(t + " Service", matchCase(t, newTrade));
+        }
+        add(t, matchCase(t, newTrade));
+      });
     }
 
     // every town/state reference on the page, not just the detected one
@@ -1595,7 +1707,23 @@
         add(pl, na);
         if (pl.toUpperCase() !== pl) add(pl.toUpperCase(), na.toUpperCase());
       });
-      (st.scan.states || []).forEach(function (stt) { add(stt, na); });
+      var naState = (na.split(",")[1] || "").trim();
+      var ST_MAP = { AL:"Alabama", AK:"Alaska", AZ:"Arizona", AR:"Arkansas", CA:"California",
+        CO:"Colorado", CT:"Connecticut", DE:"Delaware", FL:"Florida", GA:"Georgia", HI:"Hawaii",
+        ID:"Idaho", IL:"Illinois", IN:"Indiana", IA:"Iowa", KS:"Kansas", KY:"Kentucky",
+        LA:"Louisiana", ME:"Maine", MD:"Maryland", MA:"Massachusetts", MI:"Michigan",
+        MN:"Minnesota", MS:"Mississippi", MO:"Missouri", MT:"Montana", NE:"Nebraska",
+        NV:"Nevada", NH:"New Hampshire", NJ:"New Jersey", NM:"New Mexico", NY:"New York",
+        NC:"North Carolina", ND:"North Dakota", OH:"Ohio", OK:"Oklahoma", OR:"Oregon",
+        PA:"Pennsylvania", RI:"Rhode Island", SC:"South Carolina", SD:"South Dakota",
+        TN:"Tennessee", TX:"Texas", UT:"Utah", VT:"Vermont", VA:"Virginia", WA:"Washington",
+        WV:"West Virginia", WI:"Wisconsin", WY:"Wyoming" };
+      var naFull = ST_MAP[naState.toUpperCase()] || naState;
+      (st.scan.states || []).forEach(function (stt) {
+        // "South Dakota" -> "South Carolina", "SD" -> "SC"
+        var isAbbrev = stt.length === 2 && stt === stt.toUpperCase();
+        add(stt, isAbbrev ? naState : naFull);
+      });
       var naCity = na.split(",")[0].trim();
       (st.scan.places || []).forEach(function (pl) {
         var c2 = pl.split(",")[0].trim();
