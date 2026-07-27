@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 22</span>
+    <span class="rdb-build">build 23</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -1984,6 +1984,36 @@
         if (a !== b) { el.setAttribute("style", a); rep.img++; }
       });
     }
+
+    // Swapped photos rarely match the aspect ratio of the ones the template was
+    // built around. In a grid or flex track sized with fr units, an image's
+    // content-based minimum can push the track past its intended height, so the
+    // picture spills into the section below. Setting min-height/min-width to 0
+    // removes that automatic minimum. Selectors are deliberately weak (0,0,1) so
+    // any rule the template already has still wins.
+    (function () {
+      var head = doc.head || doc.documentElement;
+      var fix = doc.createElement("style");
+      fix.setAttribute("data-rdb", "image-fit");
+      fix.textContent =
+        "img{max-width:100%;height:auto;min-width:0;min-height:0}" +
+        "picture,figure{min-width:0;min-height:0;max-width:100%}" +
+        ".rdb-fit{min-width:0;min-height:0}" +
+        ".rdb-fit>img{display:block}";
+      head.appendChild(fix);
+
+      // The grid or flex item is often a wrapper around the image rather than
+      // the image itself, so the same minimum has to be cleared on the ancestors.
+      // min-height only defaults to auto for flex/grid items, so this is inert
+      // everywhere else. No template in use defines a class of this name.
+      Array.prototype.forEach.call(doc.querySelectorAll("img"), function (im2) {
+        var up = im2.parentElement, hops2 = 0;
+        while (up && hops2++ < 3 && !/^(body|html)$/i.test(up.tagName)) {
+          up.classList.add("rdb-fit");
+          up = up.parentElement;
+        }
+      });
+    })();
 
     st.out = "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
     return rep;
