@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 31</span>
+    <span class="rdb-build">build 33</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -1454,10 +1454,25 @@
   ];
   var SUBHEAD = [
     "Serving {CITY} and the surrounding area. Call for a free estimate and we'll come take a look.",
-    "Honest quotes, clean work, and a crew that turns up when we said we would.",
+    "Honest quotes on every {trade} job, and a crew that turns up when we said we would.",
     "From the first walkthrough to the final cleanup, {BIZ} handles the whole job.",
-    "No pressure and no runaround. Tell us what you need and we'll tell you what it takes.",
-    "{TRADE} for homes across {CITY}, handled by our own crew start to finish."
+    "No pressure and no runaround \u2014 tell us what you need in {CITY} and we'll tell you what it takes.",
+    "{TRADE} for homes across {CITY}, handled by our own crew start to finish.",
+    "{SVCLIST_C} for {CITY} homeowners, priced clearly before anything starts."
+  ];
+
+  // Sentences that actually name the trade, the services or the town. At least
+  // one of these leads every paragraph so the copy reads like it belongs to this
+  // business rather than to any business.
+  var ABOUT_TRADE = [
+    "{BIZ} handles {SVCLIST} for homeowners across {CITY} and the surrounding area.",
+    "{TRADE} is what we do all day, and it is all we do.",
+    "Most of our work in {CITY} is {SVCLIST}, run by the same crew every time.",
+    "We stick to {trade} rather than trying to be everything to everyone.",
+    "Homeowners around {CITY} call us for {SVCLIST}, and we handle each one properly.",
+    "Every {trade} job gets the same treatment, whether it is a small repair or a full replacement.",
+    "If you need {SVCLIST}, that is exactly the work we are set up for.",
+    "{TRADE} across {CITY} and the towns around it, handled start to finish."
   ];
   var ABOUT = [
     "{BIZ} handles {SVCLIST} for homeowners across {CITY} and the surrounding area.",
@@ -1686,17 +1701,19 @@
         n++; return;
       } else if (slot.role === "subheadline") pool = SUBHEAD;
       else if (slot.role === "body paragraph" || slot.role === "about paragraph") {
-        // the first paragraph leads with the name and the service list;
-        // the rest are ordinary prose so the page doesn't repeat itself
-        if (!leadUsed) {
-          leadUsed = true;
-          var lead = fill(ABOUT[0], c);
-          seen[ABOUT[0]] = 1;
-          var rest = assemble(ABOUT.slice(1), c, Math.max(40, slot.len - lead.length), r, seen);
-          st.copyMap[slot.id] = (lead + " " + rest).trim();
-        } else {
-          st.copyMap[slot.id] = assemble(ABOUT.slice(1), c, slot.len, r, seen);
-        }
+        // every paragraph opens with a sentence naming the trade, services or
+        // town, then fills out with the general ones
+        var leadT = null;
+        ABOUT_TRADE.forEach(function (t4) {
+          var sc4 = (seen["a:" + t4] ? 90 : 0) + r() * 8;
+          if (!leadT || sc4 < leadT.sc) leadT = { sc: sc4, key: "a:" + t4, txt: fill(t4, c) };
+        });
+        seen[leadT.key] = 1;
+        var lead = leadT.txt;
+        if (!leadUsed) { leadUsed = true; lead = fill(ABOUT_TRADE[0], c); seen["a:" + ABOUT_TRADE[0]] = 1; }
+        var room = Math.max(0, slot.len - lead.length);
+        var rest = room > 40 ? assemble(ABOUT.slice(1), c, room, r, seen) : "";
+        st.copyMap[slot.id] = (lead + (rest ? " " + rest : "")).trim();
         n++; return;
       }
       else if (slot.role === "meta description") { st.copyMap[slot.id] = metaText(c); n++; return; }
@@ -1760,25 +1777,28 @@
           var over = txt2.length > bandHi ? (txt2.length - bandHi) * 3 : 0;
           var under = txt2.length < bandLo ? (bandLo - txt2.length) : 0;
           var sc = over + under + (seen["g:" + t2] ? 26 : 0) + rr() * 5;
-          if (!core || sc < core.sc) core = { sc: sc, txt: txt2, key: "g:" + t2 };
+          if (!core || sc < core.sc) core = { sc: sc, txt: txt2, key: "g:" + t2, raw: t2 };
         });
         seen[core.key] = 1;
         var out2 = core.txt;
+        // one sentence must not appear twice in the same card; the core and the
+        // detail can come from the same pool, so track the raw template string
         var usedHere = {};
+        usedHere[core.raw] = 1;
 
         // 2. a trade-specific detail if there is room for it
         var pool = svcPool(nm);
         var pick = null;
         pool.forEach(function (t2) {
-          if (seen["s:" + t2]) return;
+          if (usedHere[t2] || seen["s:" + t2]) return;
           var txt2 = fill(t2, cc);
           var after = out2.length + 1 + txt2.length;
           if (after > bandHi) return;
           if (!pick || Math.abs(after - bandHi) < Math.abs(out2.length + 1 + pick.txt.length - bandHi)) {
-            pick = { txt: txt2, key: "s:" + t2 };
+            pick = { txt: txt2, key: "s:" + t2, raw: t2 };
           }
         });
-        if (pick) { seen[pick.key] = 1; out2 += " " + pick.txt; }
+        if (pick) { seen[pick.key] = 1; usedHere[pick.raw] = 1; out2 += " " + pick.txt; }
 
         // 3. pad with short clauses until the card reaches the shared length
         var guard2 = 0;
@@ -1962,6 +1982,40 @@
       }
       return false;
     }
+
+    // A nav item like "Precision Pour" is one client's own service page. Anything
+    // that isn't a standard site section is either renamed to one of this
+    // client's services or taken out, so the menu doesn't advertise a stranger.
+    (function () {
+      var STD = /^(home|about|about us|our story|services|our services|services we offer|what we do|gallery|photos|portfolio|projects|our work|contact|contact us|get in touch|reviews|testimonials|blog|news|faq|faqs|careers|book|book now|quote|get a quote|free quote|estimate|financing|areas|service area|areas we serve|shop|store|menu|team|our team|pricing|call|call us|call now|top|more)$/i;
+      var navs = doc.querySelectorAll("nav, .nav, .menu, header ul, .navbar");
+      var odd = [];
+      Array.prototype.forEach.call(navs, function (nv) {
+        Array.prototype.forEach.call(nv.querySelectorAll("a"), function (a4) {
+          var label = (a4.textContent || "").replace(/\s+/g, " ").trim();
+          if (!label || label.length > 34) return;
+          if (STD.test(label)) return;
+          if (a4.querySelector("img, svg")) return;         // logo links
+          if (/^[\d\s()+.-]+$/.test(label)) return;          // phone numbers
+          if (label.indexOf("@") > -1) return;              // email links
+          odd.push({ a: a4, label: label });
+        });
+      });
+      if (!odd.length) return;
+      var names4 = svcNames();
+      if (odd.length >= 3 && names4.length) {
+        // looks like a services menu: rename rather than delete
+        odd.forEach(function (o4, i4) {
+          o4.a.textContent = names4[i4 % names4.length];
+          lock(o4.a); rep.txt++;
+        });
+      } else {
+        odd.forEach(function (o4) {
+          var host = o4.a.closest("li") || o4.a;
+          host.remove(); rep.txt++;
+        });
+      }
+    })();
 
     // Social links belong to the previous client. Replace them with the new
     // client's, or take the icon out entirely so nothing points at a stranger.
