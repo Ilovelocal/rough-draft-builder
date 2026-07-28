@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 40</span>
+    <span class="rdb-build">build 42</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -2338,8 +2338,51 @@
             nd8.nodeValue.replace(/\s+/g, " ").trim() !== x.text) extra = true;
       }
       if (extra) {
-        el8.textContent = v8;
-        lock(el8);
+        // The caption is often <span><b>Name</b> rest</span>, and the inner tag
+        // carries the accent colour. Replacing the element's whole text would
+        // strip that tag and the caption would render in a different colour to
+        // its neighbours, so the wrapper is kept and filled instead.
+        var styled = null;
+        for (var s8 = 0; s8 < el8.children.length; s8++) {
+          var ch8 = el8.children[s8];
+          if (/^(b|strong|em|i|mark|span)$/i.test(ch8.tagName) && !ch8.querySelector("svg, img")) {
+            styled = ch8; break;
+          }
+        }
+        // Captions sit in a row and must look alike. If most of the neighbouring
+        // captions are plain text, the highlight tag is dropped so this one
+        // doesn't render in a different colour to the rest of the row.
+        if (styled && el8.parentElement && el8.parentElement.parentElement) {
+          var row8 = el8.parentElement.parentElement;
+          var peers8 = row8.querySelectorAll(el8.tagName.toLowerCase());
+          if (peers8.length >= 2) {
+            var plain8 = 0, total8 = 0;
+            Array.prototype.forEach.call(peers8, function (pz) {
+              if (pz === el8) return;
+              total8++;
+              var hasStyled = false;
+              for (var z8 = 0; z8 < pz.children.length; z8++) {
+                if (/^(b|strong|em|i|mark)$/i.test(pz.children[z8].tagName)) hasStyled = true;
+              }
+              if (!hasStyled) plain8++;
+            });
+            if (total8 && plain8 > total8 / 2) {
+              styled.remove();
+              styled = null;
+            }
+          }
+        }
+        if (styled) {
+          styled.textContent = v8;
+          for (var t8 = 0; t8 < el8.childNodes.length; t8++) {
+            var nd9 = el8.childNodes[t8];
+            if (nd9.nodeType === 3 && nd9.nodeValue.replace(/\s+/g, " ").trim()) nd9.nodeValue = "";
+          }
+          lock(styled);
+        } else {
+          el8.textContent = v8;
+          lock(el8);
+        }
         handledWhole[x.id] = 1;   // skip the node-level pass; st is left untouched
         rep.txt++;
       }
