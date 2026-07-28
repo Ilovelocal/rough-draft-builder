@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 37</span>
+    <span class="rdb-build">build 40</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -731,8 +731,8 @@
 
   // A trade noun followed by a job word is a service phrase belonging to the
   // previous client: "Roof Inspection", "Roof Elevation", "Fence Line Cleaning".
-  var TRADE_NOUN = "storm|hail|wind|water|fire|flood|smoke|mold|roof|roofing|siding|gutter|gutters|tree|stump|limb|branch|concrete|asphalt|paving|driveway|patio|deck|decking|fence|fencing|paint|painting|floor|flooring|window|windows|door|doors|plumbing|drain|sewer|electric|electrical|hvac|furnace|heating|cooling|duct|dumpster|junk|debris|landscape|landscaping|lawn|yard|garden|hedge|shrub|pool|spa|chimney|masonry|brick|stone|insulation|attic|drywall|garage|snow|ice|solar|pest|termite|excavation|demolition|remodel|remodeling|renovation|kitchen|bathroom|basement|siding|soffit|fascia|shingle|shingles|pressure|power";
-  var JOB_WORD = "damage|damages|restoration|remediation|mitigation|inspection|inspections|repair|repairs|replacement|replacements|installation|installations|install|removal|removals|cleaning|clean|cleanup|clean-up|service|services|maintenance|elevation|proofing|grinding|trimming|pruning|washing|sealing|coating|restoration|extraction|extractions|hauling|rental|rentals|work|jobs";
+  var TRADE_NOUN = "hardwood|hardwoods|refinishing|storm|hail|wind|water|fire|flood|smoke|mold|roof|roofing|siding|gutter|gutters|tree|stump|limb|branch|concrete|asphalt|paving|driveway|patio|deck|decking|fence|fencing|paint|painting|floor|flooring|window|windows|door|doors|plumbing|drain|sewer|electric|electrical|hvac|furnace|heating|cooling|duct|dumpster|junk|debris|landscape|landscaping|lawn|yard|garden|hedge|shrub|pool|spa|chimney|masonry|brick|stone|insulation|attic|drywall|garage|snow|ice|solar|pest|termite|excavation|demolition|remodel|remodeling|renovation|kitchen|bathroom|basement|siding|soffit|fascia|shingle|shingles|pressure|power";
+  var JOB_WORD = "refinishing|refinish|resurfacing|sanding|staining|sealcoating|damage|damages|restoration|remediation|mitigation|inspection|inspections|repair|repairs|replacement|replacements|installation|installations|install|removal|removals|cleaning|clean|cleanup|clean-up|service|services|maintenance|elevation|proofing|grinding|trimming|pruning|washing|sealing|coating|restoration|extraction|extractions|hauling|rental|rentals|work|jobs";
   var TRADE_PHRASE_RE = new RegExp("\\b(?:" + TRADE_NOUN + ")(?:\\s+[A-Za-z]+){0,2}\\s+(?:" + JOB_WORD + ")\\b", "gi");
 
   function looksLikeLogo(el) {
@@ -1212,10 +1212,15 @@
     var PLACE_WORD = /\b(county|counties|parish|borough|island|township|city|heights|valley|springs|beach|park|lake|shore|coast|metro|area|region|peninsula|hills|falls)\b/i;
     var NOT_PLACE = /^(home|about|about us|services|service|contact|contact us|name|first name|last name|email|phone|message|send|submit|menu|gallery|projects|reviews|blog|faq|hours|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|free|call|now|read more|learn more|get|quote|estimate)$/i;
     o.places = o.places || [];
+    var TRADEISH = new RegExp("\\b(?:" + TRADE_NOUN + "|" + JOB_WORD + ")\\b", "i");
     function addPlace(ph) {
       ph = (ph || "").replace(/\s+/g, " ").replace(/^[\s,&]+|[\s,&.!]+$/g, "").trim();
       if (ph.length < 3 || ph.length > 110) return;
       if (NOT_PLACE.test(ph)) return;
+      // "Home Remodeling" and "Hardwood Floor Refinishing" are services, not towns
+      if (TRADEISH.test(ph)) return;
+      if (/[.!?]/.test(ph)) return;          // "South Dakota. I've" is two sentences
+      if (/\b(I|I've|we|our|us|you)\b/i.test(ph)) return;
       if (o.places.indexOf(ph) === -1) o.places.push(ph);
     }
     // a) comma or ampersand separated lists of capitalised names
@@ -1604,6 +1609,8 @@
     if (mid.length <= 158) return mid;
     return fill("{BIZ} \u2014 {TRADE} in {CITY}.", c).slice(0, 158);
   }
+  var HEADINGS_SAFE = ["Our Work", "What We Do", "Recent Jobs", "On the Job",
+    "How We Work", "Our Approach", "Get in Touch", "Why Choose Us", "Our Crew at Work"];
   var VALUE_SHORT = ["Local Crew", "Clear Pricing", "Our Own Crew", "On Schedule",
     "Clean Sites", "Straight Answers", "Free Estimates", "No Surprises"];
   var VALUE_LONG = [
@@ -1824,7 +1831,20 @@
         n++; return;
       }
       else if (slot.role === "meta description") { st.copyMap[slot.id] = metaText(c); n++; return; }
-      else return; // section headings stay as they are
+      else if (slot.role === "section heading") {
+        // headings are otherwise left alone, but one that claims something
+        // ("Veterans at Work") has to go
+        if (!CLAIM_RE.test(slot.text)) return;
+        var safe9 = null;
+        HEADINGS_SAFE.forEach(function (h9) {
+          var sc9 = Math.abs(h9.length - slot.len) + (seen["h:" + h9] ? 40 : 0) + r() * 4;
+          if (!safe9 || sc9 < safe9.sc) safe9 = { sc: sc9, t: h9 };
+        });
+        seen["h:" + safe9.t] = 1;
+        st.copyMap[slot.id] = matchHeadingCase(slot.text, safe9.t);
+        n++; return;
+      }
+      else return;
       var gen5 = assemble(pool, c, slot.len, r, seen);
       if (slot.role === "section heading") gen5 = matchHeadingCase(slot.text, gen5);
       st.copyMap[slot.id] = gen5;
@@ -2023,6 +2043,40 @@
       });
       shortBiz = shortBiz.replace(/\b(llc|inc|llp|co|corp|ltd)\.?$/i, "").replace(/\s+/g, " ").trim();
       if (shortBiz.length >= 4 && shortBiz !== oldBiz) add(shortBiz, newBiz);
+      // "Dino's Dumpster Rentals" is also written "Dinos Dumpster Rentals",
+      // and the short form turns up possessive as "Hurney's"
+      var variants7 = [oldBiz, shortBiz].filter(function (x) { return x && x.length >= 4; });
+      variants7.forEach(function (v7) {
+        // "<Name> & Services" is the same business, not a name plus a trade
+        [" & Services", " and Services", " Services", " LLC", ", LLC", " Inc", ", Inc"].forEach(function (sfx) {
+          add(v7 + sfx, newBiz);
+          add(v7.replace(/[\u2019']/g, "") + sfx, newBiz);
+        });
+        var noApos = v7.replace(/[\u2019']/g, "");
+        if (noApos !== v7) add(noApos, newBiz);
+        var possess = /s$/i.test(v7) ? v7 + "'" : v7 + "'s";
+        add(possess, newBiz + (/s$/i.test(newBiz) ? "'" : "'s"));
+        add(v7.replace(/[\u2019']s\b/i, "s"), newBiz);
+      });
+      // "Hurney's Hardwoods" — the brand in possessive form followed by a bare
+      // trade word. Swapping only the name leaves the old trade hanging off it.
+      var brandRoots = variants7.map(function (v7) {
+        return v7.replace(/[\u2019']/g, "").split(/\s+/)[0];
+      }).filter(function (x) { return x && x.length >= 4; });
+      var TN_RE = new RegExp("^(?:" + TRADE_NOUN + ")s?$", "i");
+      var srcStrings = (st.scan.text || []).map(function (x) { return x.text; })
+        .concat((st.scan.copy || []).map(function (x) { return x.text; }));
+      srcStrings.forEach(function (str7) {
+        brandRoots.forEach(function (root7) {
+          var re7 = new RegExp(root7.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+            "(?:[\u2019']s|s|[\u2019'])?\\s+([A-Za-z]+)", "gi");
+          var m7;
+          while ((m7 = re7.exec(str7))) {
+            if (TN_RE.test(m7[1])) add(m7[0], newBiz);
+          }
+        });
+      });
+
       // templates often set the name in caps in the footer
       if (oldBiz.toUpperCase() !== oldBiz) add(oldBiz.toUpperCase(), newBiz.toUpperCase());
       if (oldBiz.toLowerCase() !== oldBiz) add(oldBiz.toLowerCase(), newBiz.toLowerCase());
@@ -2113,7 +2167,7 @@
     var ps = pairs(), rep = { img: 0, col: 0, txt: 0 };
     // Text nodes the builder has already set. Without this the global swap runs
     // over them again and a new service name matching an old one gets replaced twice.
-    var locked = [];
+    var locked = [], handledWhole = {};
     function lock(node) { if (node) locked.push(node); }
     function isLocked(node) {
       for (var li = 0; li < locked.length; li++) {
@@ -2252,7 +2306,7 @@
     // 3. hand edits from the text inventory
     (st.scan.text || []).forEach(function (x) {
       var v = st.textMap[x.id];
-      if (v == null || v === x.text) return;
+      if (v == null || v === x.text || handledWhole[x.id]) return;
       var el = doc.querySelector(x.path);
       if (!el) return;
       var hit = false;
@@ -2266,6 +2320,29 @@
         }
       }
       if (!hit && el.children.length === 0) { el.textContent = v; lock(el); rep.txt++; }
+    });
+
+    // A caption often sits in two nodes ("Buc-ee's" + the project name). Writing
+    // only one leaves the other client's wording beside the new text, so the
+    // whole element is cleared when its label is rewritten.
+    (st.scan.text || []).forEach(function (x) {
+      if (x.kind !== "label" && x.kind !== "promo") return;
+      var v8 = st.textMap[x.id];
+      if (v8 == null || v8 === x.text) return;
+      var el8 = doc.querySelector(x.path);
+      if (!el8) return;
+      var extra = false;
+      for (var k8 = 0; k8 < el8.childNodes.length; k8++) {
+        var nd8 = el8.childNodes[k8];
+        if (nd8.nodeType === 3 && nd8.nodeValue.replace(/\s+/g, " ").trim() &&
+            nd8.nodeValue.replace(/\s+/g, " ").trim() !== x.text) extra = true;
+      }
+      if (extra) {
+        el8.textContent = v8;
+        lock(el8);
+        handledWhole[x.id] = 1;   // skip the node-level pass; st is left untouched
+        rep.txt++;
+      }
     });
 
     // 4. global text swaps
