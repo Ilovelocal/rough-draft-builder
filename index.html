@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 36</span>
+    <span class="rdb-build">build 37</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -731,8 +731,8 @@
 
   // A trade noun followed by a job word is a service phrase belonging to the
   // previous client: "Roof Inspection", "Roof Elevation", "Fence Line Cleaning".
-  var TRADE_NOUN = "roof|roofing|siding|gutter|gutters|tree|stump|limb|branch|concrete|asphalt|paving|driveway|patio|deck|decking|fence|fencing|paint|painting|floor|flooring|window|windows|door|doors|plumbing|drain|sewer|electric|electrical|hvac|furnace|heating|cooling|duct|dumpster|junk|debris|landscape|landscaping|lawn|yard|garden|hedge|shrub|pool|spa|chimney|masonry|brick|stone|insulation|attic|drywall|garage|snow|ice|solar|pest|termite|excavation|demolition|remodel|remodeling|renovation|kitchen|bathroom|basement|siding|soffit|fascia|shingle|shingles|pressure|power";
-  var JOB_WORD = "inspection|inspections|repair|repairs|replacement|replacements|installation|installations|install|removal|removals|cleaning|clean|cleanup|clean-up|service|services|maintenance|elevation|proofing|grinding|trimming|pruning|washing|sealing|coating|restoration|extraction|extractions|hauling|rental|rentals|work|jobs";
+  var TRADE_NOUN = "storm|hail|wind|water|fire|flood|smoke|mold|roof|roofing|siding|gutter|gutters|tree|stump|limb|branch|concrete|asphalt|paving|driveway|patio|deck|decking|fence|fencing|paint|painting|floor|flooring|window|windows|door|doors|plumbing|drain|sewer|electric|electrical|hvac|furnace|heating|cooling|duct|dumpster|junk|debris|landscape|landscaping|lawn|yard|garden|hedge|shrub|pool|spa|chimney|masonry|brick|stone|insulation|attic|drywall|garage|snow|ice|solar|pest|termite|excavation|demolition|remodel|remodeling|renovation|kitchen|bathroom|basement|siding|soffit|fascia|shingle|shingles|pressure|power";
+  var JOB_WORD = "damage|damages|restoration|remediation|mitigation|inspection|inspections|repair|repairs|replacement|replacements|installation|installations|install|removal|removals|cleaning|clean|cleanup|clean-up|service|services|maintenance|elevation|proofing|grinding|trimming|pruning|washing|sealing|coating|restoration|extraction|extractions|hauling|rental|rentals|work|jobs";
   var TRADE_PHRASE_RE = new RegExp("\\b(?:" + TRADE_NOUN + ")(?:\\s+[A-Za-z]+){0,2}\\s+(?:" + JOB_WORD + ")\\b", "gi");
 
   function looksLikeLogo(el) {
@@ -1352,7 +1352,13 @@
         // the credit line as well. The year and name swaps handle it.
         x.kind = "identity";
       } else if (isId) x.kind = "identity";
-      else if (CLAIM_RE.test(x.text)) x.kind = "claim";
+      else if (/^(topbar|banner|promo|hero)$/.test(x.sec) && x.len >= 15 && x.len <= 150
+               && /[a-z]\s[a-z]/i.test(x.text) && x.tag !== "a" && x.tag !== "button") {
+        // The strip across the top is a sales line written around the previous
+        // client's trade. Patching words inside it leaves half their pitch behind,
+        // so it is replaced outright.
+        x.kind = "promo";
+      } else if (CLAIM_RE.test(x.text)) x.kind = "claim";
       else if (x.label) x.kind = "label";
       else x.kind = "other";
       if (x.kind !== "other") x.flag = true;
@@ -1610,6 +1616,9 @@
   ];
   var PROMO = [
     "Free estimates across {CITY} \u2014 call today",
+    "Book your free {trade} estimate today \u2014 no pressure, no obligation",
+    "Need {SVCLIST}? Call {BIZ} for a free quote today",
+    "{TRADE} across {CITY} \u2014 free estimates, straight answers",
     "{TRADE} in {CITY}. Free estimates, no pressure.",
     "Booking {trade} work in {CITY} now. Call for a free quote.",
     "Serving {CITY} and nearby. Call for a free estimate today."
@@ -1929,6 +1938,13 @@
     if (names.length) {
       opts.forEach(function (o, i) { st.textMap[o.id] = names[i % names.length]; n++; });
     }
+
+    // promo banners: written fresh rather than word-swapped
+    (st.scan.text || []).forEach(function (x) {
+      if (x.kind !== "promo" || st.textMap[x.id] != null) return;
+      st.textMap[x.id] = matchHeadingCase(x.text, assemble(PROMO, c, x.len, seedRnd(biz + "|promo|" + x.id), seen));
+      n++;
+    });
 
     // secondary service lists and feature badges
     var svcIdx6 = 0, names6 = svcNames();
@@ -2463,7 +2479,7 @@
       st.svc.filter(function (x) { return (x.desc || "").trim() || (x.name || "").trim(); }).length +
       Object.keys(st.textMap).length;
     var flag = (st.scan.text || []).filter(function (x) {
-      return x.kind === "option" || x.kind === "claim" || x.kind === "label";
+      return x.kind === "option" || x.kind === "claim" || x.kind === "label" || x.kind === "promo";
     });
     var flagLeft = flag.filter(needsYou).length;
     function set(el, d, t) {
