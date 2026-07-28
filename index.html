@@ -226,7 +226,7 @@
 <div class="rdb">
   <div class="rdb-top">
     <span class="rdb-wordmark">Rough Draft Builder</span>
-    <span class="rdb-build">build 33</span>
+    <span class="rdb-build">build 36</span>
     <span class="rdb-active" id="activeLine">No template loaded</span>
   </div>
 
@@ -729,6 +729,12 @@
     return variants.sort(function (a, b) { return b.length - a.length; });
   }
 
+  // A trade noun followed by a job word is a service phrase belonging to the
+  // previous client: "Roof Inspection", "Roof Elevation", "Fence Line Cleaning".
+  var TRADE_NOUN = "roof|roofing|siding|gutter|gutters|tree|stump|limb|branch|concrete|asphalt|paving|driveway|patio|deck|decking|fence|fencing|paint|painting|floor|flooring|window|windows|door|doors|plumbing|drain|sewer|electric|electrical|hvac|furnace|heating|cooling|duct|dumpster|junk|debris|landscape|landscaping|lawn|yard|garden|hedge|shrub|pool|spa|chimney|masonry|brick|stone|insulation|attic|drywall|garage|snow|ice|solar|pest|termite|excavation|demolition|remodel|remodeling|renovation|kitchen|bathroom|basement|siding|soffit|fascia|shingle|shingles|pressure|power";
+  var JOB_WORD = "inspection|inspections|repair|repairs|replacement|replacements|installation|installations|install|removal|removals|cleaning|clean|cleanup|clean-up|service|services|maintenance|elevation|proofing|grinding|trimming|pruning|washing|sealing|coating|restoration|extraction|extractions|hauling|rental|rentals|work|jobs";
+  var TRADE_PHRASE_RE = new RegExp("\\b(?:" + TRADE_NOUN + ")(?:\\s+[A-Za-z]+){0,2}\\s+(?:" + JOB_WORD + ")\\b", "gi");
+
   function looksLikeLogo(el) {
     var hay = ((el.getAttribute("src") || "") + " " + (el.getAttribute("alt") || "") + " " +
       (el.getAttribute("class") || "") + " " + (el.getAttribute("id") || "")).toLowerCase();
@@ -1014,7 +1020,31 @@
       if (owned[pth]) continue;
       var v = tn.nodeValue.replace(/\s+/g, " ").trim();
       if (v.length > 400) continue;
-      o.text.push({ id: "t" + (ti++), path: pth, sec: sectionOf(el),
+      // Short headline-style text sitting in a repeated group is a badge or a
+      // secondary service list — "Emergency Extractions", "Verified Vendor".
+      var isLabel = false;
+      if (v.length >= 4 && v.length <= 40 && !/[.?!]$/.test(v) && /[A-Za-z]/.test(v)) {
+        var par5 = el.parentElement, gp5 = par5 ? par5.parentElement : null;
+        var inCredit = false;
+        var anc5 = el.closest ? el.closest("a[href]") : null;
+        if (anc5) {
+          var href5 = anc5.getAttribute("href") || "";
+          if (/^https?:/i.test(href5)) inCredit = true;   // outbound link: a credit or partner
+        }
+        if (el.closest && el.closest("footer")) inCredit = true;
+        if (/simply\s*fast|copyright|\u00a9|all rights/i.test(v)) inCredit = true;
+        if (gp5 && !inCredit && !el.closest("nav, .nav, .menu, .navbar, form, footer")) {
+          var sibs5 = Array.prototype.filter.call(gp5.children, function (cc) {
+            return cc.tagName === par5.tagName;
+          });
+          if (sibs5.length >= 3) {
+            var wds5 = v.split(/\s+/).filter(function (x2) { return /[A-Za-z]/.test(x2); });
+            var caps5 = wds5.filter(function (x2) { return /^[A-Z]/.test(x2); }).length;
+            if (wds5.length >= 1 && wds5.length <= 5 && caps5 >= Math.ceil(wds5.length * 0.6)) isLabel = true;
+          }
+        }
+      }
+      o.text.push({ id: "t" + (ti++), path: pth, sec: sectionOf(el), label: isLabel,
         tag: el.tagName.toLowerCase(), text: v, len: v.length,
         flag: CLIENT_RE.test(v) || el.tagName === "OPTION" });
       if (o.text.length > 220) break;
@@ -1058,6 +1088,12 @@
       nm = (nm || "").replace(/[.!,;:]+$/, "").trim();
       if (!/^[A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2}$/.test(nm)) return "";
       if (/^(Us|Our|The|Company|Team|Story|Service|Services)\b/.test(nm)) return "";
+      // "About Exterior Remodeling" is a section heading, not a person
+      var lowNm = nm.toLowerCase();
+      if (new RegExp("\\b(?:" + TRADE_NOUN + "|" + JOB_WORD + ")\\b", "i").test(lowNm)) return "";
+      for (var tv = 0; tv < TRADE_VOCAB.length; tv++) {
+        if (lowNm.indexOf(TRADE_VOCAB[tv]) > -1) return "";
+      }
       if (o.biz) {
         var lb = o.biz.toLowerCase(), ln = nm.toLowerCase();
         if (lb.indexOf(ln) > -1 || ln.indexOf(lb) > -1) return "";
@@ -1076,8 +1112,32 @@
       if (cand2) { o.owner = cand2; break; }
     }
     if (!o.owner) {
-      var ow = body.match(/\b(?:I'm|I am|owner|founder|proprietor|owned by|founded by)\b[\s:,\u2013\u2014.-]*([A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2})/);
-      if (ow) o.owner = goodOwner(ow[1]);
+      // "Owner - Shane Michael", "Owner: Shane", "Founded by Shane Michael"
+      var OWNER_RES = [
+        /\b[Oo]wner|\b[Ff]ounder|\b[Pp]roprietor|\b[Pp]resident/.source ? null : null,
+        null
+      ];
+      // written out with explicit case classes: an /i flag would let the name
+      // pattern match lower-case words too
+      OWNER_RES = [
+        /(?:[Oo]wner|[Ff]ounder|[Pp]roprietor|[Pp]resident)\s*[-\u2013\u2014:,]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2})/,
+        /(?:I'm|I am|[Oo]wned by|[Ff]ounded by|[Rr]un by|[Ll]ed by)[\s:,\u2013\u2014.-]*([A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2})/,
+        /(?:[Oo]wner|[Ff]ounder|[Pp]roprietor)[\s:,\u2013\u2014.-]*([A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2})/,
+        /([A-Z][a-z]+(?:\s+[A-Z][a-z'\u2019]+){1,2})\s*[-\u2013\u2014,]?\s*(?:[Oo]wner|[Ff]ounder|[Pp]roprietor)\b/
+      ];
+      // search each element's own text: the joined page text runs one element
+      // into the next and the match swallows the following heading
+      var ownChunks = (o.text || []).map(function (x) { return x.text; })
+        .concat((o.copy || []).map(function (x) { return x.text; }));
+      Array.prototype.forEach.call(doc.querySelectorAll("img[alt]"), function (im5) {
+        ownChunks.push(im5.getAttribute("alt") || "");
+      });
+      for (var oi = 0; oi < OWNER_RES.length && !o.owner; oi++) {
+        for (var oc = 0; oc < ownChunks.length && !o.owner; oc++) {
+          var owm = (ownChunks[oc] || "").match(OWNER_RES[oi]);
+          if (owm) o.owner = goodOwner(owm[1]);
+        }
+      }
     }
     var ad = body.match(/\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,3}\s+(?:rd|road|st|street|ave|avenue|dr|drive|ln|lane|blvd|way|ct|court|pkwy|hwy|ter|place|pl)\.?(?:\s*,?\s*[A-Za-z ]{2,20},?\s*[A-Z]{2}[, ]*\d{5})?/i);
     o.address = ad ? ad[0].replace(/\s+/g, " ").trim() : "";
@@ -1129,6 +1189,22 @@
       });
     });
     o.trades.sort(function (a, b) { return b.length - a.length; });
+
+    // service phrases anywhere on the page, kept separate from the main trade
+    o.svcPhrases = [];
+    (o.text || []).map(function (x) { return x.text; })
+      .concat((o.copy || []).map(function (x) { return x.text; }))
+      .forEach(function (chunk2) {
+        if (!chunk2 || chunk2.length > 200) return;
+        var pm4;
+        TRADE_PHRASE_RE.lastIndex = 0;
+        while ((pm4 = TRADE_PHRASE_RE.exec(chunk2))) {
+          var ph4 = pm4[0].replace(/\s+/g, " ").trim();
+          if (ph4.length < 6 || ph4.length > 46) continue;
+          if (o.svcPhrases.indexOf(ph4) === -1) o.svcPhrases.push(ph4);
+        }
+      });
+    o.svcPhrases.sort(function (a, b) { return b.length - a.length; });
 
     // Service areas are often written as boroughs, counties or regions rather
     // than "City, ST" — "Nassau County, Suffolk County, Queens, Brooklyn".
@@ -1277,6 +1353,7 @@
         x.kind = "identity";
       } else if (isId) x.kind = "identity";
       else if (CLAIM_RE.test(x.text)) x.kind = "claim";
+      else if (x.label) x.kind = "label";
       else x.kind = "other";
       if (x.kind !== "other") x.flag = true;
     });
@@ -1444,6 +1521,27 @@
     return out.join(" ");
   }
   function cap(x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : x; }
+  var TITLE_SMALL = /^(a|an|the|and|or|but|for|nor|of|in|on|at|to|by|up|as|is|it|with|from|into|over|per)$/i;
+  // Templates set headings in their own style. Copying that style keeps the
+  // design intact instead of dropping sentence case into a Title Case design.
+  function matchHeadingCase(sample, text) {
+    var src = (sample || "").trim();
+    if (!src || !text) return text;
+    var letters = src.replace(/[^A-Za-z]/g, "");
+    if (letters.length > 3 && letters === letters.toUpperCase()) return text.toUpperCase();
+    var wordsS = src.split(/\s+/).filter(function (x) { return /[A-Za-z]/.test(x); });
+    if (wordsS.length < 2) return text;
+    var big = wordsS.filter(function (x) { return /^[A-Z]/.test(x); }).length;
+    var longish = wordsS.filter(function (x) { return x.length > 3; }).length;
+    if (big >= Math.max(2, Math.ceil(longish * 0.7))) {
+      return text.split(/(\s+)/).map(function (wd, i) {
+        if (!/[A-Za-z]/.test(wd)) return wd;
+        if (i > 0 && TITLE_SMALL.test(wd)) return wd.toLowerCase();
+        return wd.charAt(0).toUpperCase() + wd.slice(1);
+      }).join("");
+    }
+    return text;
+  }
 
   var HEADLINE = [
     "{TRADE} done right in {CITY}",
@@ -1697,7 +1795,7 @@
         var was = (st.scan.biz || "").toLowerCase().trim();
         if (was && (old === was || old.indexOf(was) > -1) && old.length < was.length + 12) return;
         // a headline is always one phrase, however long the original was
-        st.copyMap[slot.id] = assemble(HEADLINE, c, Math.min(slot.len, 58), r, seen);
+        st.copyMap[slot.id] = matchHeadingCase(slot.text, assemble(HEADLINE, c, Math.min(slot.len, 58), r, seen));
         n++; return;
       } else if (slot.role === "subheadline") pool = SUBHEAD;
       else if (slot.role === "body paragraph" || slot.role === "about paragraph") {
@@ -1718,7 +1816,9 @@
       }
       else if (slot.role === "meta description") { st.copyMap[slot.id] = metaText(c); n++; return; }
       else return; // section headings stay as they are
-      st.copyMap[slot.id] = assemble(pool, c, slot.len, r, seen);
+      var gen5 = assemble(pool, c, slot.len, r, seen);
+      if (slot.role === "section heading") gen5 = matchHeadingCase(slot.text, gen5);
+      st.copyMap[slot.id] = gen5;
       n++;
     });
 
@@ -1830,6 +1930,19 @@
       opts.forEach(function (o, i) { st.textMap[o.id] = names[i % names.length]; n++; });
     }
 
+    // secondary service lists and feature badges
+    var svcIdx6 = 0, names6 = svcNames();
+    var SERVICEY = new RegExp("\\b(?:" + TRADE_NOUN + "|" + JOB_WORD + ")\\b", "i");
+    (st.scan.text || []).forEach(function (x) {
+      if (x.kind !== "label" || st.textMap[x.id] != null) return;
+      if (SERVICEY.test(x.text) && names6.length) {
+        st.textMap[x.id] = matchHeadingCase(x.text, names6[svcIdx6++ % names6.length]);
+      } else {
+        st.textMap[x.id] = matchHeadingCase(x.text, assemble(VALUE_SHORT, c, x.len, seedRnd(biz + "|lbl|" + x.id), seen));
+      }
+      n++;
+    });
+
     // claim strings the previous client could back up and this one may not
     (st.scan.text || []).forEach(function (x) {
       if (x.kind !== "claim" || st.textMap[x.id] != null) return;
@@ -1929,6 +2042,16 @@
           add(t + " Service", matchCase(t, newTrade));
         }
         add(t, matchCase(t, newTrade));
+      });
+    }
+
+    // the previous client's service phrases take this client's service names
+    var svcList3 = svcNames();
+    if (svcList3.length) {
+      (st.scan.svcPhrases || []).forEach(function (ph5, i5) {
+        var to5 = svcList3[i5 % svcList3.length];
+        if (ph5.toLowerCase() === to5.toLowerCase()) return;
+        add(ph5, matchCase(ph5, to5));
       });
     }
 
@@ -2297,9 +2420,9 @@
       var fix = doc.createElement("style");
       fix.setAttribute("data-rdb", "image-fit");
       fix.textContent =
-        "img{max-width:100%;height:auto;min-width:0;min-height:0}" +
-        "picture,figure{min-width:0;min-height:0;max-width:100%}" +
-        ".rdb-fit{min-width:0;min-height:0}" +
+        ":where(img){max-width:100%;height:auto;min-width:0;min-height:0}" +
+        ":where(picture,figure){min-width:0;min-height:0;max-width:100%}" +
+        ":where(.rdb-fit){min-width:0;min-height:0}" +
         ".rdb-fit>img{display:block}";
       head.appendChild(fix);
 
@@ -2339,7 +2462,9 @@
     var td = copyTargets.filter(function (c) { return (st.copyMap[c.id] || "").trim(); }).length +
       st.svc.filter(function (x) { return (x.desc || "").trim() || (x.name || "").trim(); }).length +
       Object.keys(st.textMap).length;
-    var flag = (st.scan.text || []).filter(function (x) { return x.kind === "option" || x.kind === "claim"; });
+    var flag = (st.scan.text || []).filter(function (x) {
+      return x.kind === "option" || x.kind === "claim" || x.kind === "label";
+    });
     var flagLeft = flag.filter(needsYou).length;
     function set(el, d, t) {
       el.className = "ledger-count" + ((t ? d >= t : d > 0) ? " clean" : "");
